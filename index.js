@@ -1,176 +1,399 @@
+```js
 import WebSocket from "ws";
 import { createClient } from "@supabase/supabase-js";
 
 const AISSTREAM_API_KEY = process.env.AISSTREAM_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_SERVICE_ROLE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// Güney Ege / Bodrum / Marmaris / Rodos / Kuşadası civarı
-const BOUNDING_BOXES = [[[35.0, 25.0], [38.8, 30.8]]];
+const BOUNDING_BOXES = [
+  [[35.0, 25.0], [38.8, 30.8]]
+];
 
-// Aynı tekne için history tablosuna en fazla 5 dakikada 1 kayıt atalım.
-// Current tablo sürekli update olur, Supabase şişmez.
-const HISTORY_INTERVAL_MS = 5 * 60 * 1000;
+const HISTORY_INTERVAL_MS =
+  5 * 60 * 1000;
 
-if (!AISSTREAM_API_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  console.error("Eksik environment variable var.");
-  console.error("Gerekli: AISSTREAM_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY");
+if (
+  !AISSTREAM_API_KEY ||
+  !SUPABASE_URL ||
+  !SUPABASE_SERVICE_ROLE_KEY
+) {
+  console.error(
+    "Eksik environment variable var."
+  );
   process.exit(1);
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  auth: { persistSession: false },
-});
+const supabase = createClient(
+  SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY,
+  {
+    auth: {
+      persistSession: false
+    }
+  }
+);
 
 let ws;
 let reconnectTimer = null;
+
 let messageCount = 0;
 let upsertCount = 0;
 let historyCount = 0;
-const lastHistoryByMmsi = new Map();
+
+const lastHistoryByMmsi =
+  new Map();
 
 function getInnerMessage(message) {
-  if (!message || typeof message !== "object") return {};
-  const values = Object.values(message);
-  return values.length ? values[0] : {};
+  if (
+    !message ||
+    typeof message !== "object"
+  ) {
+    return {};
+  }
+
+  const values =
+    Object.values(message);
+
+  return values.length
+    ? values[0]
+    : {};
 }
 
 function normalizeAisMessage(raw) {
-  const metadata = raw.MetaData || {};
-  const inner = getInnerMessage(raw.Message);
+  const metadata =
+    raw.MetaData || {};
 
-  const mmsi = String(metadata.MMSI || metadata.MMSI_String || inner.UserID || "").trim();
+  const inner =
+    getInnerMessage(raw.Message);
+
+  const mmsi = String(
+    metadata.MMSI ||
+    metadata.MMSI_String ||
+    inner.UserID ||
+    ""
+  ).trim();
+
   if (!mmsi) return null;
 
-  const latitude = Number(metadata.latitude ?? inner.Latitude);
-  const longitude = Number(metadata.longitude ?? inner.Longitude);
+  const latitude = Number(
+    metadata.latitude ??
+    inner.Latitude
+  );
 
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  const longitude = Number(
+    metadata.longitude ??
+    inner.Longitude
+  );
 
-  const sog = Number.isFinite(Number(inner.Sog)) ? Number(inner.Sog) : null;
-  const cog = Number.isFinite(Number(inner.Cog)) ? Number(inner.Cog) : null;
-  const heading = Number.isFinite(Number(inner.TrueHeading)) ? Number(inner.TrueHeading) : null;
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude)
+  ) {
+    return null;
+  }
+
+  const sog =
+    Number.isFinite(
+      Number(inner.Sog)
+    )
+      ? Number(inner.Sog)
+      : null;
+
+  const cog =
+    Number.isFinite(
+      Number(inner.Cog)
+    )
+      ? Number(inner.Cog)
+      : null;
+
+  const heading =
+    Number.isFinite(
+      Number(inner.TrueHeading)
+    )
+      ? Number(inner.TrueHeading)
+      : null;
 
   let status = "unknown";
+
   if (sog !== null) {
-    if (sog < 0.5) status = "stopped";
-    else if (sog < 5) status = "slow";
-    else status = "moving";
+    if (sog < 0.5) {
+      status = "stopped";
+    } else if (sog < 5) {
+      status = "slow";
+    } else {
+      status = "moving";
+    }
   }
 
   return {
     mmsi,
-    ship_name: String(metadata.ShipName || "").trim() || null,
+    ship_name:
+      String(
+        metadata.ShipName || ""
+      ).trim() || null,
     latitude,
     longitude,
     sog,
     cog,
     heading,
-    message_type: raw.MessageType || null,
+    message_type:
+      raw.MessageType || null,
     status,
     raw_data: raw,
-    last_signal_at: metadata.time_utc ? new Date(metadata.time_utc).toISOString() : new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    last_signal_at:
+      metadata.time_utc
+        ? new Date(
+            metadata.time_utc
+          ).toISOString()
+        : new Date().toISOString(),
+    updated_at:
+      new Date().toISOString()
   };
 }
 
-async function saveToSupabase(vessel) {
-  const { error } = await supabase
-    .from("ais_vessels_current")
-    .upsert(vessel, { onConflict: "mmsi" });
+async function saveToSupabase(
+  vessel
+) {
+  let finalShipName =
+    vessel.ship_name?.trim() ||
+    null;
+
+  // isim geldiyse registry'ye kaydet
+  if (finalShipName) {
+    await supabase
+      .from(
+        "ais_vessel_registry"
+      )
+      .upsert(
+        {
+          mmsi: vessel.mmsi,
+          ship_name:
+            finalShipName,
+          updated_at:
+            new Date().toISOString(),
+          last_seen:
+            new Date().toISOString()
+        },
+        {
+          onConflict:
+            "mmsi"
+        }
+      );
+  } else {
+    // isim yoksa registry'den al
+    const { data } =
+      await supabase
+        .from(
+          "ais_vessel_registry"
+        )
+        .select("ship_name")
+        .eq(
+          "mmsi",
+          vessel.mmsi
+        )
+        .maybeSingle();
+
+    if (data?.ship_name) {
+      finalShipName =
+        data.ship_name;
+    }
+  }
+
+  const currentRow = {
+    ...vessel,
+    ship_name:
+      finalShipName
+  };
+
+  const { error } =
+    await supabase
+      .from(
+        "ais_vessels_current"
+      )
+      .upsert(currentRow, {
+        onConflict: "mmsi"
+      });
 
   if (error) {
-    console.error("current upsert hata:", error.message);
+    console.error(
+      "current upsert hata:",
+      error.message
+    );
     return;
   }
 
   upsertCount++;
 
   const now = Date.now();
-  const lastHistory = lastHistoryByMmsi.get(vessel.mmsi) || 0;
 
-  if (now - lastHistory >= HISTORY_INTERVAL_MS) {
+  const lastHistory =
+    lastHistoryByMmsi.get(
+      vessel.mmsi
+    ) || 0;
+
+  if (
+    now - lastHistory >=
+    HISTORY_INTERVAL_MS
+  ) {
     const historyRow = {
       mmsi: vessel.mmsi,
-      ship_name: vessel.ship_name,
-      latitude: vessel.latitude,
-      longitude: vessel.longitude,
+      ship_name:
+        finalShipName,
+      latitude:
+        vessel.latitude,
+      longitude:
+        vessel.longitude,
       sog: vessel.sog,
       cog: vessel.cog,
-      heading: vessel.heading,
-      message_type: vessel.message_type,
-      signal_at: vessel.last_signal_at,
+      heading:
+        vessel.heading,
+      message_type:
+        vessel.message_type,
+      signal_at:
+        vessel.last_signal_at
     };
 
-    const { error: histError } = await supabase
-      .from("ais_vessel_history")
+    const {
+      error: histError
+    } = await supabase
+      .from(
+        "ais_vessel_history"
+      )
       .insert(historyRow);
 
     if (histError) {
-      console.error("history insert hata:", histError.message);
+      console.error(
+        "history insert hata:",
+        histError.message
+      );
     } else {
       historyCount++;
-      lastHistoryByMmsi.set(vessel.mmsi, now);
+
+      lastHistoryByMmsi.set(
+        vessel.mmsi,
+        now
+      );
     }
   }
 }
 
 function connect() {
   if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
+    clearTimeout(
+      reconnectTimer
+    );
+
+    reconnectTimer =
+      null;
   }
 
-  console.log("AISStream baglaniyor...");
-  ws = new WebSocket("wss://stream.aisstream.io/v0/stream");
+  console.log(
+    "AISStream baglaniyor..."
+  );
+
+  ws = new WebSocket(
+    "wss://stream.aisstream.io/v0/stream"
+  );
 
   ws.on("open", () => {
-    console.log("AISStream baglandi. Ege dinleniyor...");
+    console.log(
+      "AISStream baglandi. Ege dinleniyor..."
+    );
 
-    ws.send(JSON.stringify({
-      APIKey: AISSTREAM_API_KEY,
-      BoundingBoxes: BOUNDING_BOXES
-    }));
+    ws.send(
+      JSON.stringify({
+        APIKey:
+          AISSTREAM_API_KEY.trim(),
+        BoundingBoxes:
+          BOUNDING_BOXES
+      })
+    );
   });
 
-  ws.on("message", async (data) => {
-    try {
-      const raw = JSON.parse(data.toString());
-      const vessel = normalizeAisMessage(raw);
-      if (!vessel) return;
+  ws.on(
+    "message",
+    async (data) => {
+      try {
+        const raw =
+          JSON.parse(
+            data.toString()
+          );
 
-      messageCount++;
-      await saveToSupabase(vessel);
+        const vessel =
+          normalizeAisMessage(
+            raw
+          );
 
-      if (messageCount % 50 === 0) {
-        console.log(
-          `Mesaj: ${messageCount} | current update: ${upsertCount} | history: ${historyCount} | son: ${vessel.ship_name || vessel.mmsi}`
+        if (!vessel) return;
+
+        messageCount++;
+
+        await saveToSupabase(
+          vessel
+        );
+
+        if (
+          messageCount %
+            50 ===
+          0
+        ) {
+          console.log(
+            `Mesaj: ${messageCount} | current update: ${upsertCount} | history: ${historyCount} | son: ${vessel.ship_name || vessel.mmsi}`
+          );
+        }
+      } catch (err) {
+        console.error(
+          "message parse/save hata:",
+          err.message
         );
       }
-    } catch (err) {
-      console.error("message parse/save hata:", err.message);
     }
-  });
+  );
 
-  ws.on("close", (code, reason) => {
-    console.log(`AISStream kapandi. code=${code}, reason=${reason?.toString?.() || ""}`);
-    scheduleReconnect();
-  });
+  ws.on(
+    "close",
+    (code, reason) => {
+      console.log(
+        `AISStream kapandi. code=${code}, reason=${reason?.toString?.() || ""}`
+      );
+
+      scheduleReconnect();
+    }
+  );
 
   ws.on("error", (err) => {
-    console.error("AISStream hata:", err.message);
-    try { ws.close(); } catch {}
+    console.error(
+      "AISStream hata:",
+      err.message
+    );
+
+    try {
+      ws.close();
+    } catch {}
   });
 }
 
 function scheduleReconnect() {
   if (reconnectTimer) return;
-  console.log("10 saniye sonra yeniden baglanacak...");
-  reconnectTimer = setTimeout(connect, 10000);
+
+  console.log(
+    "10 saniye sonra yeniden baglanacak..."
+  );
+
+  reconnectTimer =
+    setTimeout(
+      connect,
+      10000
+    );
 }
 
 setInterval(() => {
-  console.log(`HEALTH | mesaj=${messageCount} current=${upsertCount} history=${historyCount}`);
-}, 60_000);
+  console.log(
+    `HEALTH | mesaj=${messageCount} current=${upsertCount} history=${historyCount}`
+  );
+}, 60000);
 
 connect();
+```
