@@ -228,7 +228,11 @@ async function saveToSupabase(vessel) {
 
   // FOTO URL
   const photoUrl =
-    `${SUPABASE_URL}/storage/v1/object/public/vessel-photos/${vessel.mmsi}.jpg`;
+   const photoUrl =
+  SUPABASE_URL +
+  "/storage/v1/object/public/vessel-photos/" +
+  vessel.mmsi +
+  ".jpg";
 
   const currentRow = {
     ...vessel,
