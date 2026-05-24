@@ -347,7 +347,7 @@ function connect() {
     ws.send(
       JSON.stringify({
         APIKey:
-          AISSTREAM_API_KEY,
+           AISSTREAM_API_KEY.trim(),
         BoundingBoxes:
           BOUNDING_BOXES
       })
