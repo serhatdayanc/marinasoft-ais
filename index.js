@@ -153,27 +153,61 @@ function normalizeAisMessage(raw) {
   };
 }
 
-async function saveToSupabase(
-  vessel
-) {
-  let finalShipName =
-    vessel.ship_name?.trim() ||
-    null;
+async function saveToSupabase(vessel) {
 
-  // isim geldiyse registry'ye kaydet
+  let finalShipName =
+    vessel.ship_name?.trim() || null;
+
+  const country =
+    String(vessel.mmsi || "").slice(0, 3);
+
+  const flagMap = {
+    "271": "🇹🇷",
+    "237": "🇬🇷",
+    "239": "🇬🇷",
+    "240": "🇬🇷",
+    "241": "🇬🇷",
+    "232": "🇬🇧",
+    "233": "🇬🇧",
+    "234": "🇬🇧",
+    "235": "🇬🇧",
+    "247": "🇮🇹",
+    "248": "🇲🇹",
+    "319": "🇰🇾",
+    "338": "🇺🇸",
+    "366": "🇺🇸",
+    "367": "🇺🇸",
+    "368": "🇺🇸",
+    "352": "🇵🇦",
+    "538": "🇲🇭",
+    "636": "🇱🇷"
+  };
+
+  const flag =
+    flagMap[country] || "🏳️";
+
+  // REGISTRY KONTROLÜ
+  const { data: registry } =
+    await supabase
+      .from("ais_vessel_registry")
+      .select("*")
+      .eq("mmsi", vessel.mmsi)
+      .maybeSingle();
+
+  // isim geldiyse cache et
   if (finalShipName) {
     await supabase
-      .from(
-        "ais_vessel_registry"
-      )
+      .from("ais_vessel_registry")
       .upsert(
         {
           mmsi: vessel.mmsi,
           ship_name:
             finalShipName,
-          updated_at:
-            new Date().toISOString(),
+          flag,
+          country,
           last_seen:
+            new Date().toISOString(),
+          updated_at:
             new Date().toISOString()
         },
         {
@@ -181,30 +215,28 @@ async function saveToSupabase(
             "mmsi"
         }
       );
-  } else {
-    // isim yoksa registry'den al
-    const { data } =
-      await supabase
-        .from(
-          "ais_vessel_registry"
-        )
-        .select("ship_name")
-        .eq(
-          "mmsi",
-          vessel.mmsi
-        )
-        .maybeSingle();
-
-    if (data?.ship_name) {
-      finalShipName =
-        data.ship_name;
-    }
   }
+
+  // isim yoksa registry'den al
+  if (
+    !finalShipName &&
+    registry?.ship_name
+  ) {
+    finalShipName =
+      registry.ship_name;
+  }
+
+  // FOTO URL
+  const photoUrl =
+    `${SUPABASE_URL}/storage/v1/object/public/vessel-photos/${vessel.mmsi}.jpg`;
 
   const currentRow = {
     ...vessel,
     ship_name:
-      finalShipName
+      finalShipName,
+    photo_url:
+      photoUrl,
+    flag
   };
 
   const { error } =
@@ -213,7 +245,8 @@ async function saveToSupabase(
         "ais_vessels_current"
       )
       .upsert(currentRow, {
-        onConflict: "mmsi"
+        onConflict:
+          "mmsi"
       });
 
   if (error) {
@@ -237,6 +270,7 @@ async function saveToSupabase(
     now - lastHistory >=
     HISTORY_INTERVAL_MS
   ) {
+
     const historyRow = {
       mmsi: vessel.mmsi,
       ship_name:
@@ -249,8 +283,6 @@ async function saveToSupabase(
       cog: vessel.cog,
       heading:
         vessel.heading,
-      message_type:
-        vessel.message_type,
       signal_at:
         vessel.last_signal_at
     };
@@ -278,7 +310,6 @@ async function saveToSupabase(
     }
   }
 }
-
 function connect() {
   if (reconnectTimer) {
     clearTimeout(
