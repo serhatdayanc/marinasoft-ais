@@ -1,4 +1,3 @@
-```js
 import WebSocket from "ws";
 import { createClient } from "@supabase/supabase-js";
 
@@ -22,6 +21,7 @@ if (
   console.error(
     "Eksik environment variable var."
   );
+
   process.exit(1);
 }
 
@@ -49,9 +49,8 @@ function getInnerMessage(message) {
   if (
     !message ||
     typeof message !== "object"
-  ) {
+  )
     return {};
-  }
 
   const values =
     Object.values(message);
@@ -70,21 +69,21 @@ function normalizeAisMessage(raw) {
 
   const mmsi = String(
     metadata.MMSI ||
-    metadata.MMSI_String ||
-    inner.UserID ||
-    ""
+      metadata.MMSI_String ||
+      inner.UserID ||
+      ""
   ).trim();
 
   if (!mmsi) return null;
 
   const latitude = Number(
     metadata.latitude ??
-    inner.Latitude
+      inner.Latitude
   );
 
   const longitude = Number(
     metadata.longitude ??
-    inner.Longitude
+      inner.Longitude
   );
 
   if (
@@ -112,19 +111,19 @@ function normalizeAisMessage(raw) {
     Number.isFinite(
       Number(inner.TrueHeading)
     )
-      ? Number(inner.TrueHeading)
+      ? Number(
+          inner.TrueHeading
+        )
       : null;
 
   let status = "unknown";
 
   if (sog !== null) {
-    if (sog < 0.5) {
+    if (sog < 0.5)
       status = "stopped";
-    } else if (sog < 5) {
+    else if (sog < 5)
       status = "slow";
-    } else {
-      status = "moving";
-    }
+    else status = "moving";
   }
 
   return {
@@ -139,7 +138,8 @@ function normalizeAisMessage(raw) {
     cog,
     heading,
     message_type:
-      raw.MessageType || null,
+      raw.MessageType ||
+      null,
     status,
     raw_data: raw,
     last_signal_at:
@@ -153,13 +153,18 @@ function normalizeAisMessage(raw) {
   };
 }
 
-async function saveToSupabase(vessel) {
-
+async function saveToSupabase(
+  vessel
+) {
   let finalShipName =
-    vessel.ship_name?.trim() || null;
+    vessel.ship_name?.trim() ||
+    null;
 
-  const country =
-    String(vessel.mmsi || "").slice(0, 3);
+  const countryCode =
+    String(vessel.mmsi).slice(
+      0,
+      3
+    );
 
   const flagMap = {
     "271": "🇹🇷",
@@ -171,9 +176,6 @@ async function saveToSupabase(vessel) {
     "233": "🇬🇧",
     "234": "🇬🇧",
     "235": "🇬🇧",
-    "247": "🇮🇹",
-    "248": "🇲🇹",
-    "319": "🇰🇾",
     "338": "🇺🇸",
     "366": "🇺🇸",
     "367": "🇺🇸",
@@ -184,27 +186,37 @@ async function saveToSupabase(vessel) {
   };
 
   const flag =
-    flagMap[country] || "🏳️";
+    flagMap[countryCode] ||
+    "🏳️";
 
-  // REGISTRY KONTROLÜ
-  const { data: registry } =
-    await supabase
-      .from("ais_vessel_registry")
-      .select("*")
-      .eq("mmsi", vessel.mmsi)
-      .maybeSingle();
+  const {
+    data: registry
+  } = await supabase
+    .from(
+      "ais_vessel_registry"
+    )
+    .select("*")
+    .eq("mmsi", vessel.mmsi)
+    .maybeSingle();
 
-  // isim geldiyse cache et
   if (finalShipName) {
     await supabase
-      .from("ais_vessel_registry")
+      .from(
+        "ais_vessel_registry"
+      )
       .upsert(
         {
           mmsi: vessel.mmsi,
           ship_name:
             finalShipName,
           flag,
-          country,
+          country:
+            countryCode,
+          photo_url:
+            SUPABASE_URL +
+            "/storage/v1/object/public/vessel-photos/" +
+            vessel.mmsi +
+            ".jpg",
           last_seen:
             new Date().toISOString(),
           updated_at:
@@ -217,7 +229,6 @@ async function saveToSupabase(vessel) {
       );
   }
 
-  // isim yoksa registry'den al
   if (
     !finalShipName &&
     registry?.ship_name
@@ -226,21 +237,16 @@ async function saveToSupabase(vessel) {
       registry.ship_name;
   }
 
-  // FOTO URL
-  const photoUrl =
-   const photoUrl =
-  SUPABASE_URL +
-  "/storage/v1/object/public/vessel-photos/" +
-  vessel.mmsi +
-  ".jpg";
-
   const currentRow = {
     ...vessel,
     ship_name:
       finalShipName,
+    flag,
     photo_url:
-      photoUrl,
-    flag
+      SUPABASE_URL +
+      "/storage/v1/object/public/vessel-photos/" +
+      vessel.mmsi +
+      ".jpg"
   };
 
   const { error } =
@@ -274,7 +280,6 @@ async function saveToSupabase(vessel) {
     now - lastHistory >=
     HISTORY_INTERVAL_MS
   ) {
-
     const historyRow = {
       mmsi: vessel.mmsi,
       ship_name:
@@ -287,6 +292,8 @@ async function saveToSupabase(vessel) {
       cog: vessel.cog,
       heading:
         vessel.heading,
+      message_type:
+        vessel.message_type,
       signal_at:
         vessel.last_signal_at
     };
@@ -314,14 +321,14 @@ async function saveToSupabase(vessel) {
     }
   }
 }
+
 function connect() {
   if (reconnectTimer) {
     clearTimeout(
       reconnectTimer
     );
 
-    reconnectTimer =
-      null;
+    reconnectTimer = null;
   }
 
   console.log(
@@ -340,7 +347,7 @@ function connect() {
     ws.send(
       JSON.stringify({
         APIKey:
-          AISSTREAM_API_KEY.trim(),
+          AISSTREAM_API_KEY,
         BoundingBoxes:
           BOUNDING_BOXES
       })
@@ -370,12 +377,19 @@ function connect() {
         );
 
         if (
-          messageCount %
-            50 ===
+          messageCount % 50 ===
           0
         ) {
           console.log(
-            `Mesaj: ${messageCount} | current update: ${upsertCount} | history: ${historyCount} | son: ${vessel.ship_name || vessel.mmsi}`
+            "Mesaj:",
+            messageCount,
+            "| current:",
+            upsertCount,
+            "| history:",
+            historyCount,
+            "| son:",
+            vessel.ship_name ||
+              vessel.mmsi
           );
         }
       } catch (err) {
@@ -391,7 +405,11 @@ function connect() {
     "close",
     (code, reason) => {
       console.log(
-        `AISStream kapandi. code=${code}, reason=${reason?.toString?.() || ""}`
+        "AISStream kapandi:",
+        code,
+        reason
+          ?.toString?.() ||
+          ""
       );
 
       scheduleReconnect();
@@ -411,7 +429,8 @@ function connect() {
 }
 
 function scheduleReconnect() {
-  if (reconnectTimer) return;
+  if (reconnectTimer)
+    return;
 
   console.log(
     "10 saniye sonra yeniden baglanacak..."
@@ -426,9 +445,13 @@ function scheduleReconnect() {
 
 setInterval(() => {
   console.log(
-    `HEALTH | mesaj=${messageCount} current=${upsertCount} history=${historyCount}`
+    "HEALTH | mesaj=" +
+      messageCount +
+      " current=" +
+      upsertCount +
+      " history=" +
+      historyCount
   );
 }, 60000);
 
 connect();
-```
