@@ -1,0 +1,14 @@
+{
+  "name": "marinasoft-ais-listener",
+  "version": "1.0.0",
+  "description": "MarinaSoft AISStream to Supabase live listener",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "ws": "^8.18.0"
+  }
+}
