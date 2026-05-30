@@ -7,7 +7,7 @@ const SUPABASE_SERVICE_ROLE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const BOUNDING_BOXES = [
-  [[35.0, 25.0], [38.8, 30.8]]
+  [[34.0, 22.8], [41.3, 30.8]]
 ];
 
 const HISTORY_INTERVAL_MS =
