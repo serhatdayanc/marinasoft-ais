@@ -7,7 +7,17 @@ const SUPABASE_SERVICE_ROLE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const BOUNDING_BOXES = [
-  [[34.0, 22.8], [41.3, 30.8]]
+  // Bodrum / Kos / Datça / Rodos hattı
+  [[35.7, 26.0], [37.8, 29.2]],
+
+  // Kikladlar
+  [[36.0, 24.0], [38.2, 26.4]],
+
+  // Atina / Pire
+  [[37.2, 23.2], [38.3, 24.4]],
+
+  // Girit / Güney Ege
+  [[34.4, 23.0], [36.1, 26.9]]
 ];
 
 const HISTORY_INTERVAL_MS =
